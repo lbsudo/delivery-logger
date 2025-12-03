@@ -1,98 +1,248 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { StyleSheet, View, Pressable, Modal, Platform, Linking } from "react-native";
+import React, { useEffect, useState } from "react";
+import { Navbar } from "@/components/global/navbar";
+import { useUser } from "@clerk/clerk-expo";
+import { ThemedText } from "@/components/themed-text";
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import DateTimePicker from "@react-native-community/datetimepicker";
+import { startOfWeek } from "date-fns";
+import Constants from "expo-constants";
+import Toast from "react-native-toast-message";
 
-export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
-
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
-  );
+// Snap a date to Monday
+function snapToMonday(date: Date): Date {
+    return startOfWeek(date, { weekStartsOn: 1 });
 }
 
-const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
-  },
-});
+// Get the *latest completed* week (last week's Monday)
+function getLatestCompletedWeek(): Date {
+    const today = new Date();
+    const thisMonday = startOfWeek(today, { weekStartsOn: 1 });
+    const lastMonday = new Date(thisMonday);
+    lastMonday.setDate(lastMonday.getDate() - 7);
+    return lastMonday;
+}
+
+// Build the correct API URL for Expo environment
+function getApiUrl(path: string) {
+    const host = Constants.expoConfig?.hostUri;
+    if (!host) return path;
+    return `http://${host.split(":")[0]}:8081${path}`;
+}
+
+export default function HomeScreen() {
+    const { user, isLoaded } = useUser();
+    const userRole = user?.publicMetadata?.role;
+
+    const [modalVisible, setModalVisible] = useState(false);
+    const [selectedWeek, setSelectedWeek] = useState<Date | null>(null);
+    const [showPicker, setShowPicker] = useState(false);
+
+    // Sync driver on mount
+    useEffect(() => {
+        if (!isLoaded || !user) return;
+
+        const syncDriver = async () => {
+            try {
+                const res = await fetch("/api/sync-drivers", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        auth_user_id: user.id,
+                        email: user.primaryEmailAddress?.emailAddress,
+                        first_name: user.firstName ?? "",
+                        last_name: user.lastName ?? "",
+                    }),
+                });
+
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+            } catch (err) {
+                console.error("Driver sync failed:", err);
+            }
+        };
+
+        syncDriver();
+    }, [isLoaded, user]);
+
+    // ===============================
+    // EXPORT LATEST COMPLETED WEEK
+    // ===============================
+    const exportLatestCompletedWeek = async () => {
+        const monday = getLatestCompletedWeek();
+        const weekStartString = monday.toISOString().slice(0, 10);
+
+        const url = getApiUrl(
+            `/api/export-weekly-spreadsheet?week_start=${weekStartString}`
+        );
+
+        try {
+            if (Platform.OS === "web") {
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = `weekly-deliveries-${weekStartString}.xlsx`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } else {
+                const can = await Linking.canOpenURL(url);
+                if (!can) throw new Error("Unable to open browser.");
+                await Linking.openURL(url);
+            }
+
+            Toast.show({
+                type: "success",
+                text1: "Spreadsheet Exported!",
+                text2: "Latest completed week's report is downloading.",
+            });
+        } catch (err: any) {
+            Toast.show({
+                type: "error",
+                text1: "Export Failed",
+                text2: err.message,
+            });
+        }
+    };
+
+    // ===============================
+    // EXPORT CUSTOM WEEK
+    // ===============================
+    const exportSelectedWeek = async () => {
+        if (!selectedWeek) {
+            alert("Please pick a week start date.");
+            return;
+        }
+
+        const weekStartString = selectedWeek.toISOString().slice(0, 10);
+        const url = getApiUrl(
+            `/api/export-weekly-spreadsheet?week_start=${weekStartString}`
+        );
+
+        try {
+            if (Platform.OS === "web") {
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = `weekly-deliveries-${weekStartString}.xlsx`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            } else {
+                const can = await Linking.canOpenURL(url);
+                if (!can) throw new Error("Unable to open browser.");
+                await Linking.openURL(url);
+            }
+
+            Toast.show({
+                type: "success",
+                text1: "Spreadsheet Exported!",
+                text2: "Your download has started.",
+            });
+
+            setModalVisible(false);
+            setShowPicker(false);
+        } catch (err: any) {
+            Toast.show({
+                type: "error",
+                text1: "Export Failed",
+                text2: err.message,
+            });
+        }
+    };
+
+    const handleDateChange = (event: any, date?: Date) => {
+        if (!date) {
+            if (Platform.OS === "android") setShowPicker(false);
+            return;
+        }
+        const monday = snapToMonday(date);
+        setSelectedWeek(monday);
+
+        if (Platform.OS === "android") setShowPicker(false);
+    };
+
+    return (
+        <>
+            <Navbar />
+
+            <View className="px-6 mt-10">
+                {userRole === "admin" && (
+                    <View className="gap-4">
+
+                        {/* 1️⃣ Export Latest Completed Week */}
+                        <Pressable
+                            onPress={exportLatestCompletedWeek}
+                            className="bg-blue-600 py-4 rounded-2xl items-center"
+                        >
+                            <ThemedText className="text-white text-xl font-semibold">
+                                Export Latest Completed Week
+                            </ThemedText>
+                        </Pressable>
+
+                        {/* 2️⃣ Export Custom Week */}
+                        <Pressable
+                            onPress={() => setModalVisible(true)}
+                            className="bg-purple-600 py-4 rounded-2xl items-center"
+                        >
+                            <ThemedText className="text-white text-xl font-semibold">
+                                Export a Different Week
+                            </ThemedText>
+                        </Pressable>
+
+                    </View>
+                )}
+            </View>
+
+            {/* Modal for selecting custom week */}
+            <Modal visible={modalVisible} transparent animationType="slide">
+                <View className="flex-1 justify-center items-center bg-black/50">
+                    <View className="bg-white dark:bg-neutral-800 rounded-2xl p-6 w-80">
+                        <ThemedText className="text-xl font-bold mb-4">
+                            Choose Week Start (Monday Only)
+                        </ThemedText>
+
+                        <Pressable
+                            onPress={() => setShowPicker(true)}
+                            className="bg-neutral-200 dark:bg-neutral-700 rounded-xl p-4 items-center"
+                        >
+                            <ThemedText className="text-lg">
+                                {selectedWeek
+                                    ? selectedWeek.toISOString().slice(0, 10)
+                                    : "Tap to Select Date"}
+                            </ThemedText>
+                        </Pressable>
+
+                        {showPicker && (
+                            <DateTimePicker
+                                mode="date"
+                                display={Platform.OS === "ios" ? "spinner" : "default"}
+                                value={selectedWeek || new Date()}
+                                onChange={handleDateChange}
+                            />
+                        )}
+
+                        <View className="flex-row justify-between mt-6">
+                            <Pressable
+                                onPress={() => {
+                                    setModalVisible(false);
+                                    setShowPicker(false);
+                                }}
+                                className="px-4 py-2 bg-gray-400 rounded-xl"
+                            >
+                                <ThemedText className="text-white text-lg">Cancel</ThemedText>
+                            </Pressable>
+
+                            <Pressable
+                                onPress={exportSelectedWeek}
+                                className="px-4 py-2 bg-blue-600 rounded-xl"
+                            >
+                                <ThemedText className="text-white text-lg">Export</ThemedText>
+                            </Pressable>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+        </>
+    );
+}
+
+const styles = StyleSheet.create({});
