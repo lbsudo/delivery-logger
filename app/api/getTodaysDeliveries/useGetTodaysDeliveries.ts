@@ -5,7 +5,7 @@ interface TodaysDeliveriesResponse {
     scanner_numbers: string[];
 }
 
-export function useGetTodaysDeliveries(auth_user_id?: string, date?: string) {
+export default function useGetTodaysDeliveries(auth_user_id?: string, date?: string) {
     return useQuery<TodaysDeliveriesResponse>({
         queryKey: ["todays-deliveries", auth_user_id, date],
         queryFn: async () => {

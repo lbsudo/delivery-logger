@@ -7,7 +7,7 @@ interface UpdateDeliveriesInput {
     delivery_date: string;
 }
 
-export function useUpdateDeliveries() {
+export default function useUpdateDeliveries() {
     const queryClient = useQueryClient();
 
     return useMutation({

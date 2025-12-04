@@ -4,9 +4,9 @@ import React, { useEffect, useState } from "react";
 import { Navbar } from "@/components/global/navbar";
 import { useUser } from "@clerk/clerk-expo";
 
-import { useGetWeeklyDeliveries } from "@/app/api/getWeeklyDeliveries/useGetWeeklyDeliveries";
-import { useSyncDriver } from "@/app/api/syncDrivers/useSyncDrivers";
-import { useSetDriverRole } from "@/app/api/setDriverRole/useSetDriverRole";
+import useGetWeeklyDeliveries from "@/app/api/getWeeklyDeliveries/useGetWeeklyDeliveries";
+import useSyncDriver from "@/app/api/syncDrivers/useSyncDrivers";
+import useSetDriverRole from "@/app/api/setDriverRole/useSetDriverRole";
 
 import { ProfileForm } from "@/components/home/ProfileForm";
 import { WeeklyDeliveries } from "@/components/home/WeeklyDeliveries";
@@ -15,73 +15,96 @@ import { AdminControls } from "@/components/home/admin/AdminControls";
 export default function HomeScreen() {
     const { user, isLoaded } = useUser();
 
-    // Local name state for ProfileForm
-    const [firstName, setFirstName] = useState(user?.firstName || "");
-    const [lastName, setLastName] = useState(user?.lastName || "");
+    // ----- LOCAL STATE -----
+    const [firstName, setFirstName] = useState("");
+    const [lastName, setLastName] = useState("");
     const [savingName, setSavingName] = useState(false);
 
-    // Driver sync state
     const [isSynced, setIsSynced] = useState<boolean | null>(null);
 
-    // Role initialization tracking
-    const [roleChecked, setRoleChecked] = useState(false);
+    // Role handling
+    const [hasCheckedRole, setHasCheckedRole] = useState(false);
+    const [roleState, setRoleState] = useState<string | undefined>(undefined);
+    // ----- INITIAL USER LOAD -----
+    useEffect(() => {
+        if (!isLoaded || !user) return;
 
-    // Extract role from Clerk public metadata
-    const role = (user?.publicMetadata as any)?.role as string | undefined;
+        // Initialize names
+        setFirstName(user.firstName || "");
+        setLastName(user.lastName || "");
 
-    // === Weekly Deliveries Query (only for drivers) ===
+        // Initialize local role state
+        const existingRole = (user.publicMetadata as any)?.role;
+        setRoleState(existingRole);
+
+    }, [isLoaded, user?.id]); // only run when user identity changes
+
+    // ----- MUTATIONS -----
+    const setDriverRoleMutation = useSetDriverRole();
+    const syncDriverMutation = useSyncDriver();
+
+    // ----- ROLE ASSIGNMENT -----
+    useEffect(() => {
+        if (!isLoaded || !user) return;
+        if (hasCheckedRole) return;
+
+        // 🚫 If user is admin → DO NOT assign driver role
+        if (roleState === "admin") {
+            console.log("✔ Admin user detected — skipping role assignment");
+            setHasCheckedRole(true);
+            return;
+        }
+
+        // If no role → assign driver
+        if (!roleState) {
+            console.log("ℹ️ No role found. Setting role = driver…");
+
+            setDriverRoleMutation.mutate(user.id, {
+                onSuccess: (data) => {
+                    console.log("✅ Role updated:", data.role);
+                    setRoleState(data.role);
+                    setHasCheckedRole(true);
+                },
+                onError: (err) => {
+                    console.error("❌ Error setting role:", err);
+                    setHasCheckedRole(true);
+                }
+            });
+
+            return;
+        }
+
+        // Otherwise role exists and isn't admin
+        console.log("✔ Existing role found:", roleState);
+        setHasCheckedRole(true);
+
+    }, [isLoaded, user?.id, roleState, hasCheckedRole]);
+
+
+    // ----- WEEKLY DELIVERIES QUERY -----
     const {
         data: deliveries = [],
         isLoading: loadingDeliveries,
         refetch: refetchDeliveries,
     } = useGetWeeklyDeliveries(
-        role === "driver" && user ? user.id : undefined
+        hasCheckedRole && roleState === "driver" ? user?.id : undefined
     );
 
-    // === Mutations ===
-    const syncDriverMutation = useSyncDriver();
-    const setDriverRoleMutation = useSetDriverRole();
-
-    // Keep local name state synchronized
-    useEffect(() => {
-        if (!user) return;
-        setFirstName(user.firstName || "");
-        setLastName(user.lastName || "");
-    }, [user]);
-
-    // 1️⃣ Automatically assign role=driver if missing
-    useEffect(() => {
-        if (!isLoaded || !user || roleChecked) return;
-
-        if (!role) {
-            console.log("ℹ️ No role found — calling API to set role = driver");
-
-            setDriverRoleMutation.mutate(user.id, {
-                onSuccess: (data: any) => {
-                    console.log("✅ Role set successfully:", data.role);
-                    setRoleChecked(true);
-                },
-                onError: (err: any) => {
-                    console.error("❌ Failed to set role:", err.message);
-                    setRoleChecked(true);
-                }
-            });
-
-        } else {
-            // role already exists
-            setRoleChecked(true);
-        }
-    }, [isLoaded, user, role, roleChecked]);
-
-    // 2️⃣ Auto-sync driver after role is confirmed
+    // ----- DRIVER SYNC -----
     useEffect(() => {
         if (!isLoaded || !user) return;
-        if (!roleChecked) return;          // Wait until role assignment resolved
-        if (role !== "driver") return;     // Admins skip entire driver flow
-        if (!user.firstName || !user.lastName) return; // Must have names
-        if (isSynced !== null) return;     // Avoid repeated sync attempts
+        if (!hasCheckedRole) return;
 
-        console.log("🔄 Running driver sync mutation…");
+        // Only drivers sync; admins skip
+        if (roleState !== "driver") return;
+
+        // Must have names first
+        if (!user.firstName || !user.lastName) return;
+
+        // Already synced?
+        if (isSynced !== null) return;
+
+        console.log("🔄 Syncing driver info…");
 
         syncDriverMutation.mutate(
             {
@@ -91,37 +114,31 @@ export default function HomeScreen() {
                 last_name: user.lastName,
             },
             {
-                onSuccess: (data: any) => {
-                    console.log("✅ Driver sync success:", data.status);
+                onSuccess: (data) => {
+                    console.log("✅ Driver synced:", data.status);
                     setIsSynced(true);
                     refetchDeliveries();
                 },
-                onError: (err: any) => {
-                    console.error("❌ Driver sync failed:", err.message);
+                onError: (err) => {
+                    console.error("❌ Driver sync failed:", err);
                 },
             }
         );
-    }, [
-        isLoaded,
-        user,
-        role,
-        roleChecked,
-        isSynced,
-        syncDriverMutation,
-        refetchDeliveries,
-    ]);
 
-    // 3️⃣ Save name to Clerk (driver only)
+    }, [isLoaded, user?.id, hasCheckedRole, roleState, isSynced]);
+
+    // ----- SAVE NAME -----
     const saveName = async () => {
         if (!firstName || !lastName) {
-            alert("Please enter both first and last name.");
+            alert("Please enter both names");
             return;
         }
-
         try {
             setSavingName(true);
             await user?.update({ firstName, lastName });
-            setIsSynced(null); // re-sync needed
+
+            // Force re-sync
+            setIsSynced(null);
         } catch (err: any) {
             alert(err?.message || "Unable to save name.");
         } finally {
@@ -129,11 +146,11 @@ export default function HomeScreen() {
         }
     };
 
-    // 4️⃣ Wait until the user + role assignment is ready
-    if (!isLoaded || !user || !roleChecked) return null;
+    // ----- LOADING STATE -----
+    if (!isLoaded || !user || !hasCheckedRole) return null;
 
-    // 5️⃣ ADMIN UI
-    if (role === "admin") {
+    // ----- ADMIN UI -----
+    if (roleState === "admin") {
         return (
             <>
                 <Navbar />
@@ -142,7 +159,7 @@ export default function HomeScreen() {
         );
     }
 
-    // 6️⃣ DRIVER UI
+    // ----- DRIVER UI -----
     const missingName = !user.firstName || !user.lastName;
 
     return (

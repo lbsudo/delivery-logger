@@ -1,7 +1,7 @@
 // app/api/setDriverRole/useSetDriverRole.ts
 import { useMutation } from "@tanstack/react-query";
 
-export function useSetDriverRole() {
+export default function useSetDriverRole() {
     return useMutation({
         mutationFn: async (clerk_user_id: string) => {
             const res = await fetch("/api/setDriverRole/set-driver-role", {

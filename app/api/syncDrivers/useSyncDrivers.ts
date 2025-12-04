@@ -24,7 +24,7 @@ async function syncDriverRequest(payload: SyncDriverPayload) {
     return data;
 }
 
-export function useSyncDriver() {
+export default function useSyncDriver() {
     return useMutation({
         mutationFn: syncDriverRequest,
     });

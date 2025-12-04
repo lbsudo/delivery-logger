@@ -7,9 +7,9 @@ import { Navbar } from "@/components/global/navbar";
 import { useUser } from '@clerk/clerk-expo';
 import Toast from "react-native-toast-message";
 
-import { useGetTodaysDeliveries } from "@/app/api/getTodaysDeliveries/useGetTodaysDeliveries";
-import { useLogDeliveries } from "@/app/api/logDeliveries/useLogDeliveries";
-import { useUpdateDeliveries } from "@/app/api/updateDeliveries/useUpdateDeliveries";
+import useGetTodaysDeliveries  from "@/app/api/getTodaysDeliveries/useGetTodaysDeliveries";
+import useLogDeliveries from "@/app/api/logDeliveries/useLogDeliveries";
+import useUpdateDeliveries from "@/app/api/updateDeliveries/useUpdateDeliveries";
 import {DeliveryInput} from "@/components/pages/explore/delivery-input";
 import {DeliverySummary} from "@/components/pages/explore/delivery-summary";
 

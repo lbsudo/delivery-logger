@@ -1,5 +1,5 @@
 // hooks/deliveries/useGetWeeklyDeliveries.ts
-import { useQuery } from "@tanstack/react-query";
+import {useQuery} from "@tanstack/react-query";
 
 async function fetchWeeklyDeliveries(clerkUserId: string) {
     const res = await fetch(
@@ -15,7 +15,7 @@ async function fetchWeeklyDeliveries(clerkUserId: string) {
     return data.deliveries || [];
 }
 
-export function useGetWeeklyDeliveries(clerkUserId?: string) {
+export default function useGetWeeklyDeliveries(clerkUserId?: string) {
     return useQuery({
         queryKey: ["weekly-deliveries", clerkUserId],
         queryFn: () => fetchWeeklyDeliveries(clerkUserId!),

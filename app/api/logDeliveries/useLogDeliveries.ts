@@ -7,7 +7,7 @@ interface LogDeliveriesInput {
     delivery_date: string;
 }
 
-export function useLogDeliveries() {
+export default function useLogDeliveries() {
     const queryClient = useQueryClient();
 
     return useMutation({
