@@ -7,7 +7,7 @@ import { useThemeColor } from '@/hooks/use-theme-color';
 import { Ionicons } from '@expo/vector-icons';
 import { useUser } from '@clerk/clerk-expo';
 import { UserButton } from "@/components/clerk/user-button";
-import { Sidebar } from "@/components/global/navbar/sidebar";
+// import { Sidebar } from "@/components/global/navbar/sidebar";
 import { useRouter } from "expo-router";
 
 export function Navbar() {
@@ -18,7 +18,7 @@ export function Navbar() {
     const { user } = useUser();
     const userRole = user?.publicMetadata.role;
 
-    const [sidebarVisible, setSidebarVisible] = useState(false);
+    // const [sidebarVisible, setSidebarVisible] = useState(false);
 
     return (
         <>
@@ -28,9 +28,9 @@ export function Navbar() {
                     {/* Left (Admin Menu + User Button) */}
                     {/*{userRole === "admin" && (*/}
                         <View className="flex-1 flex-row items-start justify-start gap-4">
-                            <Pressable onPress={() => setSidebarVisible(true)}>
-                                <Ionicons name="menu" size={28} color={iconColor} />
-                            </Pressable>
+                            {/*<Pressable onPress={() => setSidebarVisible(true)}>*/}
+                            {/*    <Ionicons name="menu" size={28} color={iconColor} />*/}
+                            {/*</Pressable>*/}
 
 {/*                            <Pressable>
                                 <UserButton />
@@ -70,7 +70,7 @@ export function Navbar() {
             </SafeAreaView>
 
             {/* Sidebar */}
-            <Sidebar visible={sidebarVisible} onClose={() => setSidebarVisible(false)} />
+            {/*<Sidebar visible={sidebarVisible} onClose={() => setSidebarVisible(false)} />*/}
         </>
     );
 }

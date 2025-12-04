@@ -5,7 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useUser } from '@clerk/clerk-expo';
 import { useThemeColor } from '@/hooks/use-theme-color';
 import { ThemedView } from '@/components/themed-view';
-import { supabaseClient } from '@/clients/supabase';
+import supabaseClient  from '@/clients/supabase';
 import { ProfileContent } from '@/components/clerk/ProfileModal/profile-content';
 
 type ProfileModalProps = {
