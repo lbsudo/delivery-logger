@@ -1,46 +1,65 @@
-import { StyleSheet, View, Pressable, Modal, Platform, Linking } from "react-native";
+import { StyleSheet, View, TextInput, Pressable, Text } from "react-native";
 import React, { useEffect, useState } from "react";
 import { Navbar } from "@/components/global/navbar";
 import { useUser } from "@clerk/clerk-expo";
 import { ThemedText } from "@/components/themed-text";
-
-import DateTimePicker from "@react-native-community/datetimepicker";
-import { startOfWeek } from "date-fns";
-import Constants from "expo-constants";
-import Toast from "react-native-toast-message";
-
-// Snap a date to Monday
-function snapToMonday(date: Date): Date {
-    return startOfWeek(date, { weekStartsOn: 1 });
-}
-
-// Get the *latest completed* week (last week's Monday)
-function getLatestCompletedWeek(): Date {
-    const today = new Date();
-    const thisMonday = startOfWeek(today, { weekStartsOn: 1 });
-    const lastMonday = new Date(thisMonday);
-    lastMonday.setDate(lastMonday.getDate() - 7);
-    return lastMonday;
-}
-
-// Build the correct API URL for Expo environment
-function getApiUrl(path: string) {
-    const host = Constants.expoConfig?.hostUri;
-    if (!host) return path;
-    return `http://${host.split(":")[0]}:8081${path}`;
-}
+import {useGetWeeklyDeliveries} from "@/app/api/getWeeklyDeliveries/useGetWeeklyDeliveries";
 
 export default function HomeScreen() {
     const { user, isLoaded } = useUser();
-    const userRole = user?.publicMetadata?.role;
 
-    const [modalVisible, setModalVisible] = useState(false);
-    const [selectedWeek, setSelectedWeek] = useState<Date | null>(null);
-    const [showPicker, setShowPicker] = useState(false);
+    // Form state for missing names
+    const [firstName, setFirstName] = useState(user?.firstName || "");
+    const [lastName, setLastName] = useState(user?.lastName || "");
+    const [savingName, setSavingName] = useState(false);
 
-    // Sync driver on mount
+    // Sync status (null = not checked)
+    const [isSynced, setIsSynced] = useState<boolean | null>(null);
+
+    const missingName = !user?.firstName || !user?.lastName;
+
+    // ⭐ WEEKLY DELIVERIES QUERY (TanStack)
+    const {
+        data: deliveries = [],
+        isLoading: loadingDeliveries,
+        refetch: refetchDeliveries,
+    } = useGetWeeklyDeliveries(user?.id);
+
+    // =====================================================
+    // SAVE FIRST & LAST NAME TO CLERK
+    // =====================================================
+    const saveName = async () => {
+        if (!firstName || !lastName) {
+            alert("Please enter both first and last name.");
+            return;
+        }
+
+        try {
+            setSavingName(true);
+            await user?.update({
+                firstName,
+                lastName,
+            });
+
+            // Allow sync to run again
+            setIsSynced(null);
+        } catch (err: any) {
+            alert(err?.message || "Unable to save name.");
+        } finally {
+            setSavingName(false);
+        }
+    };
+
+    // =====================================================
+    // AUTO-SYNC DRIVER
+    // =====================================================
     useEffect(() => {
         if (!isLoaded || !user) return;
+
+        const hasName = !!user.firstName && !!user.lastName;
+        if (!hasName) return;
+
+        if (isSynced !== null) return;
 
         const syncDriver = async () => {
             try {
@@ -50,199 +69,147 @@ export default function HomeScreen() {
                     body: JSON.stringify({
                         auth_user_id: user.id,
                         email: user.primaryEmailAddress?.emailAddress,
-                        first_name: user.firstName ?? "",
-                        last_name: user.lastName ?? "",
+                        first_name: user.firstName,
+                        last_name: user.lastName,
                     }),
                 });
 
                 const data = await res.json();
-                if (!res.ok) throw new Error(data.error);
+
+                if (!res.ok) {
+                    console.error("Sync error:", data.error);
+                    return;
+                }
+
+                // Mark as synced
+                setIsSynced(true);
+
+                // Now refetch deliveries
+                refetchDeliveries();
             } catch (err) {
                 console.error("Driver sync failed:", err);
             }
         };
 
         syncDriver();
-    }, [isLoaded, user]);
+    }, [isLoaded, user, isSynced]);
 
-    // ===============================
-    // EXPORT LATEST COMPLETED WEEK
-    // ===============================
-    const exportLatestCompletedWeek = async () => {
-        const monday = getLatestCompletedWeek();
-        const weekStartString = monday.toISOString().slice(0, 10);
-
-        const url = getApiUrl(
-            `/api/export-weekly-spreadsheet?week_start=${weekStartString}`
-        );
-
-        try {
-            if (Platform.OS === "web") {
-                const link = document.createElement("a");
-                link.href = url;
-                link.download = `weekly-deliveries-${weekStartString}.xlsx`;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-            } else {
-                const can = await Linking.canOpenURL(url);
-                if (!can) throw new Error("Unable to open browser.");
-                await Linking.openURL(url);
-            }
-
-            Toast.show({
-                type: "success",
-                text1: "Spreadsheet Exported!",
-                text2: "Latest completed week's report is downloading.",
-            });
-        } catch (err: any) {
-            Toast.show({
-                type: "error",
-                text1: "Export Failed",
-                text2: err.message,
-            });
-        }
-    };
-
-    // ===============================
-    // EXPORT CUSTOM WEEK
-    // ===============================
-    const exportSelectedWeek = async () => {
-        if (!selectedWeek) {
-            alert("Please pick a week start date.");
-            return;
-        }
-
-        const weekStartString = selectedWeek.toISOString().slice(0, 10);
-        const url = getApiUrl(
-            `/api/export-weekly-spreadsheet?week_start=${weekStartString}`
-        );
-
-        try {
-            if (Platform.OS === "web") {
-                const link = document.createElement("a");
-                link.href = url;
-                link.download = `weekly-deliveries-${weekStartString}.xlsx`;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-            } else {
-                const can = await Linking.canOpenURL(url);
-                if (!can) throw new Error("Unable to open browser.");
-                await Linking.openURL(url);
-            }
-
-            Toast.show({
-                type: "success",
-                text1: "Spreadsheet Exported!",
-                text2: "Your download has started.",
-            });
-
-            setModalVisible(false);
-            setShowPicker(false);
-        } catch (err: any) {
-            Toast.show({
-                type: "error",
-                text1: "Export Failed",
-                text2: err.message,
-            });
-        }
-    };
-
-    const handleDateChange = (event: any, date?: Date) => {
-        if (!date) {
-            if (Platform.OS === "android") setShowPicker(false);
-            return;
-        }
-        const monday = snapToMonday(date);
-        setSelectedWeek(monday);
-
-        if (Platform.OS === "android") setShowPicker(false);
-    };
+    // =====================================================
+    // RENDER UI
+    // =====================================================
+    if (!isLoaded) return null;
 
     return (
         <>
             <Navbar />
 
-            <View className="px-6 mt-10">
-                {userRole === "admin" && (
-                    <View className="gap-4">
+            {/* USER IS MISSING FIRST OR LAST NAME */}
+            {missingName ? (
+                <View style={{ padding: 24, marginTop: 40 }}>
+                    <ThemedText className="text-2xl font-bold mb-4">
+                        Complete Your Profile
+                    </ThemedText>
 
-                        {/* 1️⃣ Export Latest Completed Week */}
-                        <Pressable
-                            onPress={exportLatestCompletedWeek}
-                            className="bg-blue-600 py-4 rounded-2xl items-center"
-                        >
-                            <ThemedText className="text-white text-xl font-semibold">
-                                Export Latest Completed Week
-                            </ThemedText>
-                        </Pressable>
+                    <ThemedText>First Name</ThemedText>
+                    <TextInput
+                        value={firstName}
+                        onChangeText={setFirstName}
+                        placeholder="John"
+                        placeholderTextColor="#666"
+                        style={styles.input}
+                    />
 
-                        {/* 2️⃣ Export Custom Week */}
-                        <Pressable
-                            onPress={() => setModalVisible(true)}
-                            className="bg-purple-600 py-4 rounded-2xl items-center"
-                        >
-                            <ThemedText className="text-white text-xl font-semibold">
-                                Export a Different Week
-                            </ThemedText>
-                        </Pressable>
+                    <ThemedText className="mt-4">Last Name</ThemedText>
+                    <TextInput
+                        value={lastName}
+                        onChangeText={setLastName}
+                        placeholder="Doe"
+                        placeholderTextColor="#666"
+                        style={styles.input}
+                    />
 
-                    </View>
-                )}
-            </View>
+                    <Pressable
+                        onPress={saveName}
+                        disabled={savingName}
+                        style={styles.saveButton}
+                    >
+                        <Text style={styles.saveButtonText}>
+                            {savingName ? "Saving..." : "Save"}
+                        </Text>
+                    </Pressable>
+                </View>
+            ) : (
+                // NORMAL HOME UI
+                <View style={{ padding: 24, marginTop: 40 }}>
+                    <ThemedText className="text-xl font-semibold mb-3">
+                        Welcome back, {user.firstName}!
+                    </ThemedText>
 
-            {/* Modal for selecting custom week */}
-            <Modal visible={modalVisible} transparent animationType="slide">
-                <View className="flex-1 justify-center items-center bg-black/50">
-                    <View className="bg-white dark:bg-neutral-800 rounded-2xl p-6 w-80">
-                        <ThemedText className="text-xl font-bold mb-4">
-                            Choose Week Start (Monday Only)
+                    {isSynced === null && (
+                        <ThemedText className="text-yellow-400 mt-2">
+                            Checking sync status…
+                        </ThemedText>
+                    )}
+
+                    {isSynced === true && (
+                        <ThemedText className="text-green-400 mt-1 mb-3">
+                            Driver profile synced ✔
+                        </ThemedText>
+                    )}
+
+                    {/* WEEKLY DELIVERIES */}
+                    <View style={{ marginTop: 12 }}>
+                        <ThemedText className="text-lg font-bold mb-2">
+                            Deliveries This Week
                         </ThemedText>
 
-                        <Pressable
-                            onPress={() => setShowPicker(true)}
-                            className="bg-neutral-200 dark:bg-neutral-700 rounded-xl p-4 items-center"
-                        >
-                            <ThemedText className="text-lg">
-                                {selectedWeek
-                                    ? selectedWeek.toISOString().slice(0, 10)
-                                    : "Tap to Select Date"}
-                            </ThemedText>
-                        </Pressable>
-
-                        {showPicker && (
-                            <DateTimePicker
-                                mode="date"
-                                display={Platform.OS === "ios" ? "spinner" : "default"}
-                                value={selectedWeek || new Date()}
-                                onChange={handleDateChange}
-                            />
+                        {loadingDeliveries ? (
+                            <ThemedText>Loading...</ThemedText>
+                        ) : deliveries.length === 0 ? (
+                            <ThemedText>No deliveries recorded yet this week.</ThemedText>
+                        ) : (
+                            deliveries.map((d:any) => (
+                                <View key={d.id} style={styles.deliveryCard}>
+                                    <ThemedText>Date: {d.delivery_date}</ThemedText>
+                                    <ThemedText>Deliveries: {d.delivery_count}</ThemedText>
+                                    <ThemedText>
+                                        Scanners: {d.scanner_numbers.join(", ") || "None"}
+                                    </ThemedText>
+                                </View>
+                            ))
                         )}
-
-                        <View className="flex-row justify-between mt-6">
-                            <Pressable
-                                onPress={() => {
-                                    setModalVisible(false);
-                                    setShowPicker(false);
-                                }}
-                                className="px-4 py-2 bg-gray-400 rounded-xl"
-                            >
-                                <ThemedText className="text-white text-lg">Cancel</ThemedText>
-                            </Pressable>
-
-                            <Pressable
-                                onPress={exportSelectedWeek}
-                                className="px-4 py-2 bg-blue-600 rounded-xl"
-                            >
-                                <ThemedText className="text-white text-lg">Export</ThemedText>
-                            </Pressable>
-                        </View>
                     </View>
                 </View>
-            </Modal>
+            )}
         </>
     );
 }
 
-const styles = StyleSheet.create({});
+const styles = StyleSheet.create({
+    input: {
+        borderWidth: 1,
+        borderColor: "#444",
+        padding: 12,
+        borderRadius: 10,
+        color: "white",
+        marginTop: 6,
+    },
+    saveButton: {
+        backgroundColor: "#4ade80",
+        padding: 14,
+        borderRadius: 12,
+        marginTop: 24,
+    },
+    saveButtonText: {
+        textAlign: "center",
+        fontWeight: "600",
+        color: "black",
+    },
+    deliveryCard: {
+        borderWidth: 1,
+        borderColor: "#333",
+        padding: 12,
+        borderRadius: 10,
+        marginBottom: 10,
+    },
+});

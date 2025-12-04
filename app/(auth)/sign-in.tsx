@@ -166,7 +166,7 @@ export default function SignUpPage() {
     return (
         <View style={[styles.container, { backgroundColor: theme.background }]}>
             <View style={[styles.card, { backgroundColor: '#1C1E1F' }]}>
-                <Text style={[styles.title, { color: theme.text }]}>Create account</Text>
+                <Text style={[styles.title, { color: theme.text }]}>Sign In</Text>
 
                 {/* Email / password sign up with email code verification */}
                 {step === 'credentials' && (
@@ -283,10 +283,10 @@ export default function SignUpPage() {
 
                 <View style={styles.footer}>
                     <Text style={[styles.footerText, { color: theme.icon }]}>
-                        Already have an account?
+                        Don&apos;t have an account?
                     </Text>
-                    <Link href="/sign-in">
-                        <Text style={[styles.footerLink, { color: theme.tint }]}>Sign in</Text>
+                    <Link href="/sign-up">
+                        <Text style={[styles.footerLink, { color: theme.tint }]}>Sign Up</Text>
                     </Link>
                 </View>
             </View>
