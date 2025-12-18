@@ -18,6 +18,17 @@ function getLastCompletedWeek() {
     return startOfWeek(today, { weekStartsOn: 1 });
 }
 
+function getWeekStartSafe(input?: string | null) {
+    if (!input) return getLastCompletedWeek();
+
+    const d = new Date(input);
+    if (Number.isNaN(d.getTime())) {
+        return getLastCompletedWeek();
+    }
+
+    return startOfWeek(d, { weekStartsOn: 1 });
+}
+
 function toExcel(rows: Record<string, any>[], sheetName: string) {
     const worksheet = XLSX.utils.json_to_sheet(rows);
     const workbook = XLSX.utils.book_new();
@@ -33,9 +44,12 @@ function toExcel(rows: Record<string, any>[], sheetName: string) {
 /* ---------------------------------------
    API Route
 --------------------------------------- */
-export async function GET() {
+export async function GET(req: Request) {
     try {
-        const weekStart = getLastCompletedWeek();
+        const { searchParams } = new URL(req.url);
+        const weekStartParam = searchParams.get("weekStart"); // optional
+
+        const weekStart = getWeekStartSafe(weekStartParam);
         const weekEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
 
         const weekStartISO = weekStart.toISOString().slice(0, 10);

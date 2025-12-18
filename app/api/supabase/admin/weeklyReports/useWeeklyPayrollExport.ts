@@ -3,12 +3,18 @@ import { Platform, Alert } from "react-native";
 import * as Linking from "expo-linking";
 import { getBaseUrl } from "@/utils/getBaseUrl";
 
+type ExportArgs = {
+    weekStart?: string; // YYYY-MM-DD (Monday) — optional
+};
+
 export function useWeeklyPayrollExport() {
     return useMutation({
-        mutationFn: async () => {
+        mutationFn: async ({ weekStart }: ExportArgs = {}) => {
             const baseUrl = getBaseUrl();
+
             const url =
-                `${baseUrl}/api/supabase/admin/weeklyReports/weekly-reports`;
+                `${baseUrl}/api/supabase/admin/weeklyReports/weekly-reports` +
+                (weekStart ? `?weekStart=${weekStart}` : "");
 
             // Web → browser handles ZIP download
             if (Platform.OS === "web") {
