@@ -1,178 +1,419 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { View, Pressable, TextInput } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useUser } from "@clerk/clerk-expo";
+import Toast from "react-native-toast-message";
+
 import { ThemedText } from "@/components/themed-text";
 import { Fonts } from "@/constants/theme";
+import { useLogDeliveries } from "@/app/api/supabase/deliveries/logDeliveries/useLogDeliveries";
+import { useSearchScanners } from "@/app/api/supabase/scanners/useSearchScanners";
 
-interface Props {
+/* ---------------------------------------
+   Types
+--------------------------------------- */
+
+export type BatchInput = {
+    scannerCode: string;
+    batchDeliveryCode: string;
     deliveryCount: number;
-    setDeliveryCount: (n: number | ((prev: number) => number)) => void;
+};
 
-    scannerNumbers: string[];
-    setScannerNumbers: (n: string[]) => void;
+type Props = {
+    initialBatches?: BatchInput[];
+    onCancelEdit?: () => void;
+};
 
-    currentScanner: string;
-    setCurrentScanner: (s: string) => void;
-
-    addScannerNumber: () => void;
-    removeScannerNumber: (idx: number) => void;
-
-    isEditing: boolean;
-    setIsEditing: (v: boolean) => void;
-
-    onSubmit: () => Promise<void>;
-    onUpdate: () => Promise<void>;
-
-    logPending: boolean;
-    updatePending: boolean;
-}
+/* ---------------------------------------
+   Component
+--------------------------------------- */
 
 export function DeliveryInput({
-                                      deliveryCount,
-                                      setDeliveryCount,
-                                      scannerNumbers,
-                                      setScannerNumbers,
-                                      currentScanner,
-                                      setCurrentScanner,
-                                      addScannerNumber,
-                                      removeScannerNumber,
-                                      isEditing,
-                                      setIsEditing,
-                                      onSubmit,
-                                      onUpdate,
-                                      logPending,
-                                      updatePending
-                                  }: Props) {
+                                  initialBatches = [],
+                                  onCancelEdit,
+                              }: Props) {
+    const { user } = useUser();
+
+    const [batches, setBatches] = useState<BatchInput[]>([]);
+    const [editingIndex, setEditingIndex] = useState<number | null>(null);
+
+    const [currentBatch, setCurrentBatch] = useState<BatchInput>({
+        scannerCode: "",
+        batchDeliveryCode: "",
+        deliveryCount: 0,
+    });
+
+    const [scannerQuery, setScannerQuery] = useState("");
+    const [showScannerResults, setShowScannerResults] = useState(false);
+
+    const { mutate, isPending } = useLogDeliveries();
+
+    useEffect(() => {
+        if (initialBatches.length > 0) {
+            setBatches(initialBatches);
+        }
+    }, [initialBatches]);
+
+    const {
+        data: scannerData,
+        isLoading: scannersLoading,
+        error: scannersError,
+    } = useSearchScanners(scannerQuery);
+
+    const scannerResults = scannerData?.scanners ?? [];
+
+    const groups = useMemo(() => {
+        const grouped: Record<string, any> = {};
+
+        for (const batch of batches) {
+            if (!grouped[batch.batchDeliveryCode]) {
+                grouped[batch.batchDeliveryCode] = {
+                    group_code: batch.batchDeliveryCode,
+                    expected_count: 0,
+                    scans: [],
+                };
+            }
+
+            grouped[batch.batchDeliveryCode].expected_count +=
+                batch.deliveryCount;
+
+            grouped[batch.batchDeliveryCode].scans.push({
+                scanner_code: batch.scannerCode.trim(),
+                delivered_count: batch.deliveryCount,
+            });
+        }
+
+        return Object.values(grouped);
+    }, [batches]);
+
+    function resetCurrentBatch() {
+        setCurrentBatch({
+            scannerCode: "",
+            batchDeliveryCode: "",
+            deliveryCount: 0,
+        });
+        setScannerQuery("");
+        setEditingIndex(null);
+        setShowScannerResults(false);
+    }
+
+    function saveBatch() {
+        if (
+            !currentBatch.scannerCode ||
+            !currentBatch.batchDeliveryCode ||
+            currentBatch.deliveryCount <= 0
+        ) {
+            Toast.show({
+                type: "error",
+                text1: "Invalid batch",
+                text2: "All fields are required",
+            });
+            return;
+        }
+
+        if (editingIndex !== null) {
+            setBatches((prev) =>
+                prev.map((b, i) => (i === editingIndex ? currentBatch : b))
+            );
+        } else {
+            setBatches((prev) => [...prev, currentBatch]);
+        }
+
+        resetCurrentBatch();
+    }
+
+    function removeBatch(index: number) {
+        setBatches((prev) => prev.filter((_, i) => i !== index));
+        if (editingIndex === index) resetCurrentBatch();
+    }
+
+    function onSubmit() {
+        if (!user) {
+            Toast.show({ type: "error", text1: "Not authenticated" });
+            return;
+        }
+
+        if (groups.length === 0) {
+            Toast.show({ type: "error", text1: "No deliveries added" });
+            return;
+        }
+
+        mutate(
+            {
+                clerk_auth_id: user.id,
+                delivery_date: new Date().toISOString().slice(0, 10),
+                groups,
+            },
+            {
+                onSuccess: () => {
+                    Toast.show({ type: "success", text1: "Deliveries saved" });
+                    setBatches([]);
+                    resetCurrentBatch();
+                    onCancelEdit?.();
+                },
+                onError: (err) => {
+                    Toast.show({
+                        type: "error",
+                        text1: "Submission failed",
+                        text2: err.message,
+                    });
+                },
+            }
+        );
+    }
+
+    function cancelEdit() {
+        setBatches(initialBatches);
+        resetCurrentBatch();
+        onCancelEdit?.();
+    }
+
     return (
         <>
-            {/* Delivery Counter Card */}
-            <View className="bg-white dark:bg-gray-900 rounded-3xl p-6 shadow-lg dark:shadow-black/30 mb-6">
-                <ThemedText className="text-lg font-semibold mb-4 text-center">
-                    Number of Deliveries
+            {/* Current Batch */}
+            <View className="rounded-3xl p-6 mb-6 bg-white dark:bg-gray-900 shadow-lg border border-black/5">
+                <ThemedText className="text-xl font-semibold text-center mb-1">
+                    {editingIndex !== null
+                        ? "Edit Batch"
+                        : initialBatches.length > 0
+                            ? "Edit Today’s Deliveries"
+                            : "Add Delivery Batch"}
                 </ThemedText>
 
-                <View className="flex-row items-center justify-center py-4">
-                    <Pressable
-                        onPress={() => setDeliveryCount((c) => Math.max(0, c - 1))}
-                        className="bg-gray-100 dark:bg-gray-800 active:bg-gray-200 dark:active:bg-gray-700 rounded-2xl p-4"
-                    >
-                        <Ionicons name="remove" size={32} color="#6b7280" />
-                    </Pressable>
-
-                    <View className="mx-8 min-w-[140px] items-center">
-                        <TextInput
-                            value={deliveryCount.toString()}
-                            onChangeText={(text) => {
-                                const num = parseInt(text) || 0;
-                                setDeliveryCount(Math.max(0, num));
-                            }}
-                            keyboardType="numeric"
-                            className="text-blue-600 dark:text-blue-400 text-center font-bold"
-                            style={{
-                                fontFamily: Fonts.rounded,
-                                fontSize: 54,
-                                height: 70,
-                                paddingVertical: 6,
-                            }}
-                            maxLength={4}
-                        />
-                    </View>
-
-                    <Pressable
-                        onPress={() => setDeliveryCount((c) => c + 1)}
-                        className="bg-blue-600 active:bg-blue-700 rounded-2xl p-4"
-                    >
-                        <Ionicons name="add" size={32} color="#fff" />
-                    </Pressable>
-                </View>
-            </View>
-
-            {/* Scanner Numbers Card */}
-            <View className="bg-white dark:bg-gray-900 rounded-3xl p-6 shadow-lg dark:shadow-black/30 mb-6">
-                <ThemedText className="text-lg font-semibold mb-4">
-                    Scanner Numbers
-                    <ThemedText className="text-sm font-normal text-gray-500 dark:text-gray-400">
-                        {" "} (Optional)
-                    </ThemedText>
+                <ThemedText className="text-sm text-center opacity-60 mb-5">
+                    Scanner, batch code, and delivered count
                 </ThemedText>
 
-                <View className="flex-row items-center gap-3 mb-4">
-                    <TextInput
-                        value={currentScanner}
-                        onChangeText={setCurrentScanner}
-                        placeholder="Enter scanner number"
-                        placeholderTextColor="#9ca3af"
-                        className="flex-1 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 p-4 rounded-xl text-base text-gray-900 dark:text-white"
-                        onSubmitEditing={addScannerNumber}
-                        returnKeyType="done"
-                    />
-                    <Pressable
-                        onPress={addScannerNumber}
-                        className="bg-blue-600 active:bg-blue-700 p-4 rounded-xl"
-                    >
-                        <Ionicons name="add" size={24} color="#fff" />
-                    </Pressable>
-                </View>
+                {/* Scanner Code */}
+                <TextInput
+                    value={scannerQuery}
+                    onChangeText={(v) => {
+                        setScannerQuery(v);
+                        setCurrentBatch((b) => ({ ...b, scannerCode: "" }));
+                        setShowScannerResults(true);
+                    }}
+                    placeholder="Scanner Code"
+                    placeholderTextColor="#687076"
+                    className="
+            rounded-xl
+            px-4
+            py-4
+            mb-2
+            bg-black/5
+            dark:bg-white/10
+            border
+            border-black/5
+            font-mono
+            text-[#11181C]
+            dark:text-[#ECEDEE]
+          "
+                />
 
-                {scannerNumbers.length > 0 && (
-                    <View className="border-t border-gray-200 dark:border-gray-800 pt-4">
-                        <ThemedText className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-3">
-                            Added ({scannerNumbers.length})
-                        </ThemedText>
+                {showScannerResults && (
+                    <View className="rounded-xl mb-3 overflow-hidden bg-white dark:bg-gray-800 border border-black/10">
+                        {scannersLoading && (
+                            <ThemedText className="p-3 text-sm opacity-60">
+                                Searching scanners…
+                            </ThemedText>
+                        )}
 
-                        <View className="gap-2">
-                            {scannerNumbers.map((num, idx) => (
-                                <View
-                                    key={idx}
-                                    className="flex-row items-center justify-between bg-blue-50 dark:bg-blue-900/20 p-4 rounded-xl border border-blue-200 dark:border-blue-800"
+                        {scannersError && (
+                            <ThemedText className="p-3 text-sm text-red-500">
+                                Failed to load scanners
+                            </ThemedText>
+                        )}
+
+                        {!scannersLoading &&
+                            scannerResults.map((item) => (
+                                <Pressable
+                                    key={item}
+                                    onPress={() => {
+                                        setScannerQuery(item);
+                                        setCurrentBatch((b) => ({
+                                            ...b,
+                                            scannerCode: item,
+                                        }));
+                                        setShowScannerResults(false);
+                                    }}
+                                    className="px-4 py-3 border-b border-black/5"
                                 >
-                                    <ThemedText className="font-mono text-base flex-1">{num}</ThemedText>
-                                    <Pressable onPress={() => removeScannerNumber(idx)}>
-                                        <Ionicons name="close-circle" size={24} color="#ef4444" />
-                                    </Pressable>
-                                </View>
+                                    <ThemedText className="font-mono">
+                                        {item}
+                                    </ThemedText>
+                                </Pressable>
                             ))}
-                        </View>
                     </View>
+                )}
+
+                {/* Batch Code */}
+                <TextInput
+                    value={currentBatch.batchDeliveryCode}
+                    onChangeText={(v) =>
+                        setCurrentBatch((b) => ({ ...b, batchDeliveryCode: v }))
+                    }
+                    placeholder="Batch Code"
+                    placeholderTextColor="#687076"
+                    className="
+            rounded-xl
+            px-4
+            py-4
+            mb-4
+            bg-black/5
+            dark:bg-white/10
+            border
+            border-black/5
+            font-mono
+            text-[#11181C]
+            dark:text-[#ECEDEE]
+          "
+                />
+
+                {/* Delivery Count */}
+                <View className="flex-row items-center justify-between mb-5">
+                    <Pressable
+                        onPress={() =>
+                            setCurrentBatch((b) => ({
+                                ...b,
+                                deliveryCount: Math.max(0, b.deliveryCount - 1),
+                            }))
+                        }
+                        className="rounded-xl p-3 bg-[#0a7ea4]"
+                    >
+                        <Ionicons name="remove" size={22} color={'#fff'}/>
+                    </Pressable>
+
+                    <TextInput
+                        value={currentBatch.deliveryCount.toString()}
+                        keyboardType="numeric"
+                        placeholderTextColor="#687076"
+                        className="text-center text-[#0a7ea4]"
+                        style={{ fontFamily: Fonts.rounded, fontSize: 36 }}
+                        onChangeText={(text) => {
+                            const numericValue = Number(text.replace(/[^0-9]/g, ""));
+                            setCurrentBatch((b) => ({
+                                ...b,
+                                deliveryCount: isNaN(numericValue) ? 0 : numericValue,
+                            }));
+                        }}
+                    />
+
+                    <Pressable
+                        onPress={() =>
+                            setCurrentBatch((b) => ({
+                                ...b,
+                                deliveryCount: b.deliveryCount + 1,
+                            }))
+                        }
+                        className="rounded-xl p-3 bg-[#0a7ea4]"
+                    >
+                        <Ionicons name="add" size={22} color="#fff" />
+                    </Pressable>
+                </View>
+
+                {/* Add / Update Batch */}
+                <Pressable
+                    onPress={saveBatch}
+                    className={`rounded-2xl py-4 items-center shadow-md ${
+                        editingIndex !== null ? "bg-[#0a7ea4]" : "bg-[#0a7ea4]"
+                    }`}
+                >
+                    <ThemedText className="text-white font-semibold text-base">
+                        {editingIndex !== null ? "Update Batch" : "Add Batch"}
+                    </ThemedText>
+                </Pressable>
+
+                {editingIndex !== null && (
+                    <Pressable
+                        onPress={resetCurrentBatch}
+                        className="
+              mt-3
+              py-3
+              rounded-xl
+              items-center
+              bg-transparent
+              border
+              border-[#0a7ea4]/40
+            "
+                    >
+                        <ThemedText className="font-semibold">
+                            Cancel Batch Edit
+                        </ThemedText>
+                    </Pressable>
                 )}
             </View>
 
-            {/* Action Buttons */}
+            {/* Added Batches */}
+            {batches.length > 0 && (
+                <View className="mb-6">
+                    <ThemedText className="text-base font-semibold mb-3">
+                        Added Batches ({batches.length})
+                    </ThemedText>
+
+                    {batches.map((b, idx) => (
+                        <Pressable
+                            key={idx}
+                            onPress={() => {
+                                setEditingIndex(idx);
+                                setCurrentBatch(b);
+                                setScannerQuery(b.scannerCode);
+                            }}
+                            className={`rounded-2xl p-4 mb-2 bg-black/5 dark:bg-white/10 flex-row justify-between ${
+                                editingIndex === idx ? "border-2 border-[#0a7ea4]" : ""
+                            }`}
+                        >
+                            <View>
+                                <ThemedText className="font-mono text-sm opacity-70">
+                                    Scanner
+                                </ThemedText>
+                                <ThemedText className="font-mono mb-1">
+                                    {b.scannerCode}
+                                </ThemedText>
+
+                                <ThemedText className="font-mono text-sm opacity-70">
+                                    Batch
+                                </ThemedText>
+                                <ThemedText className="font-mono mb-1">
+                                    {b.batchDeliveryCode}
+                                </ThemedText>
+
+                                <ThemedText className="font-mono">
+                                    Count: {b.deliveryCount}
+                                </ThemedText>
+                            </View>
+
+                            <Pressable onPress={() => removeBatch(idx)}>
+                                <Ionicons
+                                    name="close-circle"
+                                    size={24}
+                                    color="#ef4444"
+                                />
+                            </Pressable>
+                        </Pressable>
+                    ))}
+                </View>
+            )}
+
+            {/* Save / Cancel */}
             <View className="gap-3">
                 <Pressable
-                    onPress={isEditing ? onUpdate : onSubmit}
-                    disabled={deliveryCount === 0 || logPending || updatePending}
-                    className={`py-5 rounded-2xl items-center shadow-sm ${
-                        deliveryCount === 0
-                            ? 'bg-gray-300 dark:bg-gray-700'
-                            : 'bg-blue-600 active:bg-blue-700'
+                    onPress={onSubmit}
+                    disabled={batches.length === 0 || isPending}
+                    className={`rounded-2xl py-5 items-center ${
+                        batches.length === 0 ? "bg-gray-300" : "bg-green-600"
                     }`}
                 >
-                    <View className="flex-row items-center gap-2">
-                        <Ionicons
-                            name={isEditing ? "checkmark" : "send"}
-                            size={20}
-                            color="#fff"
-                        />
-                        <ThemedText className="text-white text-lg font-semibold">
-                            {isEditing
-                                ? updatePending ? "Saving..." : "Save Changes"
-                                : logPending ? "Submitting..." : "Submit Deliveries"}
-                        </ThemedText>
-                    </View>
+                    <ThemedText className="text-white text-lg font-semibold">
+                        {isPending ? "Saving..." : "Save Deliveries"}
+                    </ThemedText>
                 </Pressable>
 
-                {isEditing && (
+                {onCancelEdit && (
                     <Pressable
-                        onPress={() => {
-                            setIsEditing(false);
-                            setDeliveryCount(0);
-                            setScannerNumbers([]);
-                        }}
-                        className="py-4 rounded-2xl items-center border-2 border-gray-300 dark:border-gray-700"
+                        onPress={cancelEdit}
+                        className="rounded-2xl py-4 items-center bg-black/10"
                     >
-                        <ThemedText className="text-gray-600 dark:text-gray-400 text-base font-medium">
-                            Cancel
+                        <ThemedText className="font-semibold">
+                            Cancel Edit
                         </ThemedText>
                     </Pressable>
                 )}

@@ -4,22 +4,22 @@ export async function POST(req: Request) {
     try {
         const body = await req.json();
 
-        const { auth_user_id, email, first_name, last_name } = body;
+        const { clerk_auth_id, email, first_name, last_name } = body;
 
-        if (!auth_user_id || !email) {
+        if (!clerk_auth_id || !email) {
             return Response.json(
                 { error: "Missing required fields" },
                 { status: 400 }
             );
         }
 
-        const name = `${first_name || ""} ${last_name || ""}`.trim() || "Unknown";
+        const full_name = `${first_name || ""} ${last_name || ""}`.trim() || "Unknown";
 
         // Check if driver exists
         const { data: existing, error: findErr } = await supabaseClient
             .from("drivers")
             .select("*")
-            .eq("clerk_user_id", auth_user_id)
+            .eq("clerk_auth_id", clerk_auth_id)
             .maybeSingle();
 
         if (findErr) {
@@ -34,10 +34,10 @@ export async function POST(req: Request) {
             const { data: updated, error: updateErr } = await supabaseClient
                 .from("drivers")
                 .update({
-                    name,
+                    full_name,
                     email,
                 })
-                .eq("clerk_user_id", auth_user_id)
+                .eq("clerk_auth_id", clerk_auth_id)
                 .select()
                 .single();
 
@@ -62,8 +62,8 @@ export async function POST(req: Request) {
             .from("drivers")
             .insert([
                 {
-                    clerk_user_id: auth_user_id,
-                    name,
+                    clerk_auth_id: clerk_auth_id,
+                    full_name,
                     email,
                 },
             ])

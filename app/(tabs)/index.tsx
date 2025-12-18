@@ -5,8 +5,8 @@ import { Navbar } from "@/components/global/navbar";
 import { useUser } from "@clerk/clerk-expo";
 
 import useGetWeeklyDeliveries from "@/app/api/getWeeklyDeliveries/useGetWeeklyDeliveries";
-import useSyncDriver from "@/app/api/syncDrivers/useSyncDrivers";
-import useSetDriverRole from "@/app/api/setDriverRole/useSetDriverRole";
+import useSyncDriver from "@/app/api/supabase/sync/syncDrivers/useSyncDrivers";
+import useSetDriverRole from "@/app/api/clerk/setDriverRole/useSetDriverRole";
 
 import { ProfileForm } from "@/components/home/ProfileForm";
 import { WeeklyDeliveries } from "@/components/home/WeeklyDeliveries";
@@ -108,7 +108,7 @@ export default function HomeScreen() {
 
         syncDriverMutation.mutate(
             {
-                auth_user_id: user.id,
+                clerk_auth_id: user.id,
                 email: user.primaryEmailAddress?.emailAddress,
                 first_name: user.firstName,
                 last_name: user.lastName,

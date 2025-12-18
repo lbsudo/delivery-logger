@@ -12,7 +12,7 @@ import {
     Modal,
     Pressable,
 } from "react-native";
-import { Link, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { useSSO, useSignIn } from "@clerk/clerk-expo";
 import * as WebBrowser from "expo-web-browser";
 import * as AuthSession from "expo-auth-session";
@@ -104,7 +104,7 @@ const OAuthIconButton: React.FC<OAuthIconButtonProps> = ({
         }
 
         return () => animation?.stop();
-    }, [isLoading]);
+    }, [isLoading, shimmer]);
 
     const animatedOpacity = isLoading
         ? shimmer.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] })
@@ -155,7 +155,7 @@ export default function SignInPage() {
             duration: 450,
             useNativeDriver: true,
         }).start();
-    }, []);
+    }, [fadeAnim]);
 
     // OAuth sign-in handler
     const handleOAuth = useCallback(

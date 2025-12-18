@@ -1,5 +1,5 @@
 // app/(auth)/sign-up.tsx
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
     View,
     Text,
@@ -10,7 +10,7 @@ import {
     Animated,
     KeyboardAvoidingView,
 } from "react-native";
-import { Link, useRouter } from "expo-router";
+import { useRouter } from "expo-router";
 import { useSSO, useSignUp } from "@clerk/clerk-expo";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -82,7 +82,7 @@ const OAuthIconButton: React.FC<OAuthIconButtonProps> = ({
         } else shimmer.setValue(0);
 
         return () => animation?.stop();
-    }, [isLoading]);
+    }, [isLoading, shimmer]);
 
     const animatedOpacity = isLoading
         ? shimmer.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] })
@@ -132,7 +132,7 @@ export default function SignUpScreen() {
             duration: 450,
             useNativeDriver: true,
         }).start();
-    }, []);
+    }, [fadeAnim]);
 
     // OAuth logic unchanged
     const handleOAuth = async (provider: OAuthProvider) => {

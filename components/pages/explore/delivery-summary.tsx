@@ -1,76 +1,120 @@
-import React from "react";
-import { View, Pressable } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import React, { useMemo } from "react";
+import { View, ActivityIndicator, Pressable } from "react-native";
 import { ThemedText } from "@/components/themed-text";
-import { Fonts } from "@/constants/theme";
+import { useTodaySummary } from "@/app/api/supabase/deliveries/todaySummary/useTodaySummary";
+import { ThemedView } from "@/components/themed-view";
 
-interface Props {
-    todaysData: { delivery_count: number; scanner_numbers: string[] };
+type Props = {
+    clerkAuthId: string;
     onEdit: () => void;
-}
+};
 
-export function DeliverySummary({ todaysData, onEdit }: Props) {
+export function DeliverySummary({ clerkAuthId, onEdit }: Props) {
+    const { data, isLoading, error } = useTodaySummary(clerkAuthId);
+
+    const grouped = useMemo(() => {
+        if (!data || !data.submitted) return {};
+
+        const map: Record<string, Record<string, number>> = {};
+
+        for (const b of data.batches) {
+            map[b.group_code] ??= {};
+            map[b.group_code][b.scanner_code] =
+                (map[b.group_code][b.scanner_code] ?? 0) + b.delivered_count;
+        }
+
+        return map;
+    }, [data]);
+
+    if (isLoading) return <ActivityIndicator />;
+    if (error || !data || !data.submitted) return null;
+
     return (
-        <View className="items-center">
-            {/* Summary Card */}
-            <View className="w-full bg-white dark:bg-gray-900 rounded-3xl p-8 shadow-lg dark:shadow-black/30 mb-6">
-                <View className="items-center mb-6">
-                    <View className="bg-green-100 dark:bg-green-900/30 rounded-full p-4 mb-4">
-                        <Ionicons name="checkmark-circle" size={48} color="#22c55e" />
-                    </View>
+        <ThemedView
+            className="
+        rounded-3xl
+        px-6
+        py-6
+        mb-8
+        shadow-black/10
+        shadow-lg
+        border
+        border-black/5
+      "
+        >
+            {/* Header */}
+            <View className="mb-6">
+                <ThemedText className="text-2xl font-semibold text-center">
+                    Deliveries Submitted
+                </ThemedText>
+                <ThemedText className="text-sm text-center opacity-60 mt-1">
+                    Today’s activity summary
+                </ThemedText>
+            </View>
 
-                    <ThemedText className="text-lg font-medium text-gray-600 dark:text-gray-400 mb-2">
-                        Deliveries Completed
-                    </ThemedText>
-
-                    <ThemedText
-                        className="text-6xl font-bold text-blue-600 dark:text-blue-400"
-                        style={{ fontFamily: Fonts.rounded }}
+            {/* Groups */}
+            <View className="space-y-5">
+                {Object.entries(grouped).map(([group, scanners]) => (
+                    <View
+                        key={group}
+                        className="
+              rounded-2xl
+              p-4
+              bg-black/5
+            "
                     >
-                        {todaysData.delivery_count}
-                    </ThemedText>
-                </View>
-
-                {/* Scanner numbers */}
-                {todaysData.scanner_numbers.length > 0 && (
-                    <View className="border-t border-gray-200 dark:border-gray-800 pt-6 mt-2">
-                        <View className="flex-row items-center justify-between mb-4">
-                            <ThemedText className="text-base font-semibold">
-                                Scanner Numbers
+                        {/* Group header */}
+                        <View className="flex-row items-center justify-between mb-3">
+                            <ThemedText className="font-semibold text-base">
+                                Group
                             </ThemedText>
-                            <View className="bg-blue-100 dark:bg-blue-900/30 px-3 py-1 rounded-full">
-                                <ThemedText className="text-sm font-medium text-blue-600 dark:text-blue-400">
-                                    {todaysData.scanner_numbers.length}
+                            <View className="px-3 py-1 rounded-full bg-black/10">
+                                <ThemedText className="font-mono text-sm">
+                                    {group}
                                 </ThemedText>
                             </View>
                         </View>
 
-                        <View className="gap-2">
-                            {todaysData.scanner_numbers.map((num, idx) => (
+                        {/* Scanner rows */}
+                        <View className="space-y-1.5">
+                            {Object.entries(scanners).map(([scanner, count]) => (
                                 <View
-                                    key={idx}
-                                    className="bg-gray-50 dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700"
+                                    key={scanner}
+                                    className="flex-row justify-between items-center"
                                 >
-                                    <ThemedText className="font-mono text-base">{num}</ThemedText>
+                                    <ThemedText className="font-mono text-sm opacity-80">
+                                        {scanner}
+                                    </ThemedText>
+                                    <View className="px-2 py-0.5 rounded-lg bg-black/10">
+                                        <ThemedText className="font-mono text-sm font-semibold">
+                                            {count}
+                                        </ThemedText>
+                                    </View>
                                 </View>
                             ))}
                         </View>
                     </View>
-                )}
+                ))}
             </View>
 
-            {/* Edit Button */}
+            {/* CTA */}
             <Pressable
                 onPress={onEdit}
-                className="bg-blue-600 active:bg-blue-700 px-8 py-4 rounded-2xl shadow-sm"
+                className="
+          mt-6
+          rounded-2xl
+          py-4
+          items-center
+          bg-[#0a7ea4]
+          shadow-black/20
+          shadow-md
+          active:opacity-80
+        "
             >
-                <View className="flex-row items-center gap-2">
-                    <Ionicons name="create-outline" size={20} color="#fff" />
-                    <ThemedText className="text-white text-base font-semibold">
-                        Edit Deliveries
-                    </ThemedText>
-                </View>
+                <ThemedText className="text-white font-semibold text-base">
+                    Edit Today’s Deliveries
+                </ThemedText>
             </Pressable>
-        </View>
+        </ThemedView>
     );
 }
