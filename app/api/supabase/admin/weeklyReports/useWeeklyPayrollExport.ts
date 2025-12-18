@@ -4,13 +4,14 @@ import * as Linking from "expo-linking";
 import { getBaseUrl } from "@/utils/getBaseUrl";
 
 type ExportArgs = {
-    weekStart?: string; // YYYY-MM-DD (Monday) — optional
+    weekStart?: string; // optional
 };
 
 export function useWeeklyPayrollExport() {
-    return useMutation({
-        mutationFn: async ({ weekStart }: ExportArgs = {}) => {
+    return useMutation<void, Error, ExportArgs | void>({
+        mutationFn: async (args) => {
             const baseUrl = getBaseUrl();
+            const weekStart = args?.weekStart;
 
             const url =
                 `${baseUrl}/api/supabase/admin/weeklyReports/weekly-reports` +
@@ -31,11 +32,11 @@ export function useWeeklyPayrollExport() {
             await Linking.openURL(url);
         },
 
-        onError: (err: any) => {
+        onError: (err) => {
             console.error("Weekly export failed:", err);
             Alert.alert(
                 "Download failed",
-                err?.message ?? "Unable to download weekly reports"
+                err.message ?? "Unable to download weekly reports"
             );
         },
     });

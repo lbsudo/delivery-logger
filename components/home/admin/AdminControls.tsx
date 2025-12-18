@@ -22,7 +22,7 @@ export function AdminControls() {
                     Admin Tools
                 </ThemedText>
 
-                {/* Date picker for manual week */}
+                {/* Manual week picker */}
                 <DateTimePicker
                     value={selectedDate}
                     mode="date"
@@ -37,15 +37,15 @@ export function AdminControls() {
                     className="mt-4 bg-blue-600 rounded-lg p-3"
                 >
                     <ThemedText className="text-center text-white font-semibold">
-                        Download Last Completed Week
+                        {exportWeeklyPayroll.isPending
+                            ? "Preparing Reports..."
+                            : "Download Last Completed Week"}
                     </ThemedText>
                 </Pressable>
 
                 {/* Selected week */}
                 <Pressable
-                    onPress={() =>
-                        exportWeeklyPayroll.mutate({ weekStart })
-                    }
+                    onPress={() => exportWeeklyPayroll.mutate({ weekStart })}
                     disabled={exportWeeklyPayroll.isPending}
                     className="mt-3 bg-green-600 rounded-lg p-3"
                 >
